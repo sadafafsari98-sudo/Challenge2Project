@@ -8,25 +8,56 @@
 import SwiftUI
 import AVFoundation
 
-// MARK: - SwiftUI Wrapper for UIKit Camera
+import SwiftUI
+import AVFoundation
+import UIKit
+
+
+// MARK: - SwiftUI Wrapper
 struct CameraView: UIViewControllerRepresentable {
-    
-    // This function creates the UIKit camera controller
+    // Callback closure to deliver a new video frame image to SwiftUI
+    var onFrameCaptured: ((UIImage) -> Void)?
+
     func makeUIViewController(context: Context) -> CameraViewController {
-        return CameraViewController()
+        let controller = CameraViewController()
+        controller.delegate = context.coordinator
+        return controller
     }
 
-    // This function keeps SwiftUI updated if needed (we don’t need updates now)
-    func updateUIViewController(_ uiViewController: CameraViewController, context: Context) {
-        // Nothing here yet — the camera runs automatically
+    func updateUIViewController(_ uiViewController: CameraViewController, context: Context) { }
+
+    func makeCoordinator() -> CameraViewCoordinator {
+        CameraViewCoordinator(onFrameCaptured: onFrameCaptured)
     }
 }
 
-// MARK: - UIKit View Controller for Camera
-final class CameraViewController: UIViewController {
-    // AVCaptureSession controls camera input/output
+// MARK: - Coordinator
+final class CameraViewCoordinator: NSObject, CameraViewControllerDelegate {
+    var onFrameCaptured: ((UIImage) -> Void)?
+
+    init(onFrameCaptured: ((UIImage) -> Void)?) {
+        self.onFrameCaptured = onFrameCaptured
+    }
+
+    func cameraViewController(_ controller: CameraViewController, didCapture frame: UIImage) {
+        onFrameCaptured?(frame)
+    }
+}
+
+// MARK: - Delegate Protocol
+protocol CameraViewControllerDelegate: AnyObject {
+    func cameraViewController(_ controller: CameraViewController, didCapture frame: UIImage)
+}
+
+// MARK: - UIKit Camera Controller
+final class CameraViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
+
+    weak var delegate: CameraViewControllerDelegate?
+
     private let captureSession = AVCaptureSession()
     private var previewLayer: AVCaptureVideoPreviewLayer!
+    private let videoOutput = AVCaptureVideoDataOutput()
+    private let sessionQueue = DispatchQueue(label: "camera.session.queue")
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -34,43 +65,51 @@ final class CameraViewController: UIViewController {
     }
 
     private func setupCamera() {
-        // 1️⃣ Configure the session for video
-        captureSession.sessionPreset = .photo
+        captureSession.sessionPreset = .medium
 
-        // 2️⃣ Choose the default back camera
         guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera,
                                                    for: .video,
-                                                   position: .back) else {
-            print("⚠️ No camera available")
-            return
+                                                   position: .back),
+              let input = try? AVCaptureDeviceInput(device: camera)
+        else { return }
+
+        if captureSession.canAddInput(input) { captureSession.addInput(input) }
+
+        // video output to get frames
+        if captureSession.canAddOutput(videoOutput) {
+            captureSession.addOutput(videoOutput)
+            videoOutput.setSampleBufferDelegate(self, queue: sessionQueue)
         }
 
-        // 3️⃣ Create camera input
-        guard let input = try? AVCaptureDeviceInput(device: camera) else {
-            print("⚠️ Cannot access camera input")
-            return
-        }
-
-        // 4️⃣ Add input to the session
-        if captureSession.canAddInput(input) {
-            captureSession.addInput(input)
-        }
-
-        // 5️⃣ Create a preview layer
         previewLayer = AVCaptureVideoPreviewLayer(session: captureSession)
-        previewLayer.videoGravity = .resizeAspectFill // fills screen nicely
-        previewLayer.frame = view.layer.bounds
-
-        // 6️⃣ Add preview layer to the view
+        previewLayer.videoGravity = .resizeAspectFill
+        previewLayer.frame = view.bounds
         view.layer.addSublayer(previewLayer)
 
-        // 7️⃣ Start camera
         captureSession.startRunning()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        // Update layer size when device rotates
         previewLayer.frame = view.bounds
+    }
+
+    // delegate method called every frame
+    func captureOutput(_ output: AVCaptureOutput,
+                       didOutput sampleBuffer: CMSampleBuffer,
+                       from connection: AVCaptureConnection) {
+
+        guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+
+        // Convert CVImageBuffer → UIImage
+        let ciImage = CIImage(cvPixelBuffer: imageBuffer)
+        let context = CIContext()
+        if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
+            let uiImage = UIImage(cgImage: cgImage)
+            // Send back to SwiftUI (on main thread)
+            DispatchQueue.main.async {
+                self.delegate?.cameraViewController(self, didCapture: uiImage)
+            }
+        }
     }
 }
