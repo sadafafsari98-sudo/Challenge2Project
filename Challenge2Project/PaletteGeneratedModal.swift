@@ -20,7 +20,7 @@ struct PaletteGeneratedModal: View {
             Text("Generated Palette")
                 .font(.title2)
                 .bold()
-                .padding(.top, 20)
+                .padding(.top, 30)
 
             ScrollView {
                 VStack(spacing: 20) {

@@ -86,7 +86,9 @@ final class CameraViewController: UIViewController, AVCaptureVideoDataOutputSamp
         previewLayer.frame = view.bounds
         view.layer.addSublayer(previewLayer)
 
-        captureSession.startRunning()
+        sessionQueue.async {
+            self.captureSession.startRunning()
+        }
     }
 
     override func viewDidLayoutSubviews() {
