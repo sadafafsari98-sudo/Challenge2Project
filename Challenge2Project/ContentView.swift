@@ -24,7 +24,7 @@ struct ContentView: View {
             HStack(spacing: 16) {
                 // Left color square
                 Rectangle()
-                    .fill(Color(colorHex) ?? .gray.opacity(0.4))
+                    .fill(Color(hex: colorHex) ?? Color.black)
                     .frame(width: 50, height: 50)
                     .cornerRadius(8)
                     .overlay(
